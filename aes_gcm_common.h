@@ -52,7 +52,9 @@ enum aes_gcm_mode {
 /* Configuration struct */
 struct aes_gcm_cfg {
 	char file_path[MAX_FILE_NAME];		      /* File to encrypt/decrypt */
+	char my_file_size[10];
 	char output_path[MAX_FILE_NAME];	      /* Output file */
+	char output_dir[MAX_FILE_NAME];             /* Output directory */
 	char pci_address[DOCA_DEVINFO_PCI_ADDR_SIZE]; /* Device PCI address */
 	uint8_t raw_key[MAX_AES_GCM_KEY_SIZE];	      /* Raw key */
 	enum doca_aes_gcm_key_type raw_key_type;      /* Raw key type */
@@ -70,6 +72,12 @@ struct aes_gcm_resources {
 	size_t num_remaining_tasks;	    /* Number of remaining AES-GCM tasks */
 	enum aes_gcm_mode mode;		    /* AES-GCM mode - encrypt/decrypt */
 	bool run_pe_progress;		    /* Controls whether progress loop should run */
+};
+
+/* 新增：任务用户数据结构体，用于在回调和提交函数之间传递状态和结果 */
+struct task_userdata {
+	doca_error_t result; /* 任务执行结果 */
+	bool task_done;      /* 任务完成标志 */
 };
 
 /*

@@ -25,7 +25,7 @@
 #include <doca_argp.h>
 #include <doca_aes_gcm.h>
 
-#include "../common.h"
+#include "../../../common.h"
 #include "aes_gcm_common.h"
 
 DOCA_LOG_REGISTER(AES_GCM::COMMON);
@@ -38,10 +38,10 @@ DOCA_LOG_REGISTER(AES_GCM::COMMON);
  */
 void init_aes_gcm_params(struct aes_gcm_cfg *aes_gcm_cfg)
 {
-	strcpy(aes_gcm_cfg->output_path, "/tmp/out.txt");
+	strcpy(aes_gcm_cfg->output_path, "../out.txt");
 	strcpy(aes_gcm_cfg->pci_address, "03:00.0");
 	memset(aes_gcm_cfg->raw_key, 0, MAX_AES_GCM_KEY_SIZE);
-	aes_gcm_cfg->raw_key_type = DOCA_AES_GCM_KEY_256;
+	aes_gcm_cfg->raw_key_type = DOCA_AES_GCM_KEY_128;	//256改成了128，和CPU、arm一致
 	memset(aes_gcm_cfg->iv, 0, MAX_AES_GCM_IV_LENGTH);
 	aes_gcm_cfg->iv_length = MAX_AES_GCM_IV_LENGTH;
 	aes_gcm_cfg->tag_size = AES_GCM_AUTH_TAG_96_SIZE_IN_BYTES;
@@ -121,6 +121,22 @@ static doca_error_t file_callback(void *param, void *config)
 		return DOCA_ERROR_INVALID_VALUE;
 	}
 	strcpy(aes_gcm_cfg->file_path, file);
+	return DOCA_SUCCESS;
+}
+
+/*将文件大小添加到 aes_gcm_cfg中*/
+static doca_error_t my_file_size_callback(void *param, void *config)
+{
+	struct aes_gcm_cfg *aes_gcm_cfg = (struct aes_gcm_cfg *)config;
+	char *file_size = (char *)param;
+	int len;
+
+	len = strnlen(file_size, 10);
+	if (len == MAX_FILE_NAME) {
+		DOCA_LOG_ERR("Invalid file name length, max %d", USER_MAX_FILE_NAME);
+		return DOCA_ERROR_INVALID_VALUE;
+	}
+	strcpy(aes_gcm_cfg->my_file_size, file_size);
 	return DOCA_SUCCESS;
 }
 
@@ -251,7 +267,7 @@ static doca_error_t aad_callback(void *param, void *config)
 doca_error_t register_aes_gcm_params(void)
 {
 	doca_error_t result;
-	struct doca_argp_param *pci_param, *file_param, *output_param, *raw_key_param, *iv_param, *tag_size_param,
+	struct doca_argp_param *pci_param, *file_param,*my_file_size_param, *output_param, *raw_key_param, *iv_param, *tag_size_param,
 		*aad_size_param;
 
 	result = doca_argp_param_create(&pci_param);
@@ -287,6 +303,24 @@ doca_error_t register_aes_gcm_params(void)
 		return result;
 	}
 
+	/*要加密的文件大小 */
+	result = doca_argp_param_create(&my_file_size_param);
+	if (result != DOCA_SUCCESS) {
+		DOCA_LOG_ERR("Failed to create ARGP param: %s", doca_error_get_descr(result));
+		return result;
+	}
+	doca_argp_param_set_short_name(my_file_size_param, "s");
+	doca_argp_param_set_long_name(my_file_size_param, "filesize");
+	doca_argp_param_set_description(my_file_size_param, "like: 10B/4KB/64MB");
+	doca_argp_param_set_mandatory(my_file_size_param);
+	doca_argp_param_set_callback(my_file_size_param, my_file_size_callback);
+	doca_argp_param_set_type(my_file_size_param, DOCA_ARGP_TYPE_STRING);
+	result = doca_argp_register_param(my_file_size_param);
+	if (result != DOCA_SUCCESS) {
+		DOCA_LOG_ERR("Failed to register program param: %s", doca_error_get_descr(result));
+		return result;
+	}
+
 	result = doca_argp_param_create(&output_param);
 	if (result != DOCA_SUCCESS) {
 		DOCA_LOG_ERR("Failed to create ARGP param: %s", doca_error_get_descr(result));
@@ -294,7 +328,7 @@ doca_error_t register_aes_gcm_params(void)
 	}
 	doca_argp_param_set_short_name(output_param, "o");
 	doca_argp_param_set_long_name(output_param, "output");
-	doca_argp_param_set_description(output_param, "Output file - default: /tmp/out.txt");
+	doca_argp_param_set_description(output_param, "Output file - default: ../out.txt");
 	doca_argp_param_set_callback(output_param, output_callback);
 	doca_argp_param_set_type(output_param, DOCA_ARGP_TYPE_STRING);
 	result = doca_argp_register_param(output_param);
@@ -389,8 +423,8 @@ static void aes_gcm_state_changed_callback(const union doca_data user_data,
 					   enum doca_ctx_states prev_state,
 					   enum doca_ctx_states next_state)
 {
-	(void)ctx;
-	(void)prev_state;
+	// (void)ctx;
+	// (void)prev_state;
 
 	struct aes_gcm_resources *resources = (struct aes_gcm_resources *)user_data.ptr;
 
@@ -443,10 +477,15 @@ doca_error_t allocate_aes_gcm_resources(const char *pci_addr, uint32_t max_bufs,
 	/* Open DOCA device */
 	if (pci_addr != NULL) {
 		/* If pci_addr was provided then open using it */
-		if (resources->mode == AES_GCM_MODE_ENCRYPT)
+		if (resources->mode == AES_GCM_MODE_ENCRYPT){
+			DOCA_LOG_INFO("111111111");
 			result = open_doca_device_with_pci(pci_addr, &aes_gcm_task_encrypt_is_supported, &state->dev);
-		else
+
+		}
+		else{
+			DOCA_LOG_INFO("22222222");
 			result = open_doca_device_with_pci(pci_addr, &aes_gcm_task_decrypt_is_supported, &state->dev);
+		}
 	} else {
 		/* If pci_addr was not provided then look for DOCA device */
 		if (resources->mode == AES_GCM_MODE_ENCRYPT)
@@ -459,15 +498,15 @@ doca_error_t allocate_aes_gcm_resources(const char *pci_addr, uint32_t max_bufs,
 		DOCA_LOG_ERR("Failed to open DOCA device for DOCA AES-GCM: %s", doca_error_get_descr(result));
 		goto free_state;
 	}
-
+	// 创建 AES-GCM 引擎
 	result = doca_aes_gcm_create(state->dev, &resources->aes_gcm);
 	if (result != DOCA_SUCCESS) {
 		DOCA_LOG_ERR("Unable to create AES-GCM engine: %s", doca_error_get_descr(result));
 		goto close_device;
 	}
-
+	// 获取 AES-GCM 引擎的上下文对象
 	state->ctx = doca_aes_gcm_as_ctx(resources->aes_gcm);
-
+	// 程序所需的核心对象，包括：进程引擎（PE）、内存映射（mmap）、缓冲区实体（buf_inventory）
 	result = create_core_objects(state, max_bufs);
 	if (result != DOCA_SUCCESS) {
 		DOCA_LOG_ERR("Unable to create DOCA core objects: %s", doca_error_get_descr(result));
@@ -561,64 +600,128 @@ doca_error_t destroy_aes_gcm_resources(struct aes_gcm_resources *resources)
 	return result;
 }
 
+
+/*origin*/
+// doca_error_t submit_aes_gcm_encrypt_task(struct aes_gcm_resources *resources,
+// 					 struct doca_buf *src_buf,
+// 					 struct doca_buf *dst_buf,
+// 					 struct doca_aes_gcm_key *key,
+// 					 const uint8_t *iv,
+// 					 uint32_t iv_length,
+// 					 uint32_t tag_size,
+// 					 uint32_t aad_size)
+// {
+// 	struct doca_aes_gcm_task_encrypt *encrypt_task;
+// 	struct program_core_objects *state = resources->state;
+// 	struct doca_task *task;
+// 	union doca_data task_user_data = {0};
+// 	struct timespec ts = {
+// 		.tv_sec = 0,
+// 		.tv_nsec = SLEEP_IN_NANOS,
+// 	};
+// 	doca_error_t result, task_result;
+
+// 	/* Include result in user data of task to be used in the callbacks */
+// 	task_user_data.ptr = &task_result;
+// 	/* Allocate and construct encrypt task */
+// 	result = doca_aes_gcm_task_encrypt_alloc_init(resources->aes_gcm,
+// 						      src_buf,
+// 						      dst_buf,
+// 						      key,
+// 						      iv,
+// 						      iv_length,
+// 						      tag_size,
+// 						      aad_size,
+// 						      task_user_data,
+// 						      &encrypt_task);
+// 	if (result != DOCA_SUCCESS) {
+// 		DOCA_LOG_ERR("Failed to allocate encrypt task: %s", doca_error_get_descr(result));
+// 		return result;
+// 	}
+
+// 	task = doca_aes_gcm_task_encrypt_as_task(encrypt_task);
+
+// 	/* Submit encrypt task */
+// 	resources->num_remaining_tasks++;
+// 	result = doca_task_submit(task);
+// 	if (result != DOCA_SUCCESS) {
+// 		DOCA_LOG_ERR("Failed to submit encrypt task: %s", doca_error_get_descr(result));
+// 		doca_task_free(task);
+// 		return result;
+// 	}
+
+// 	resources->run_pe_progress = true;
+// 	printf("---------------task submit small succes");
+
+	// /* Wait for all tasks to be completed and context to stop */
+	// while (resources->run_pe_progress) {
+	// 	if (doca_pe_progress(state->pe) == 0)
+	// 		nanosleep(&ts, &ts);
+	// }
+
+// 	return task_result;
+// }
+
+/*small*/
 doca_error_t submit_aes_gcm_encrypt_task(struct aes_gcm_resources *resources,
-					 struct doca_buf *src_buf,
-					 struct doca_buf *dst_buf,
-					 struct doca_aes_gcm_key *key,
-					 const uint8_t *iv,
-					 uint32_t iv_length,
-					 uint32_t tag_size,
-					 uint32_t aad_size)
+                                         struct doca_buf *src_buf,
+                                         struct doca_buf *dst_buf,
+                                         struct doca_aes_gcm_key *key,
+                                         const uint8_t *iv,
+                                         uint32_t iv_length,
+                                         uint32_t tag_size,
+                                         uint32_t aad_size)
 {
-	struct doca_aes_gcm_task_encrypt *encrypt_task;
-	struct program_core_objects *state = resources->state;
-	struct doca_task *task;
-	union doca_data task_user_data = {0};
-	struct timespec ts = {
-		.tv_sec = 0,
-		.tv_nsec = SLEEP_IN_NANOS,
-	};
-	doca_error_t result, task_result;
+    struct doca_aes_gcm_task_encrypt *encrypt_task;
+    struct program_core_objects *state = resources->state;
+    struct doca_task *task;
+    union doca_data task_user_data = {0};
+    struct timespec ts = {
+        .tv_sec = 0,
+        .tv_nsec = SLEEP_IN_NANOS,
+    };
+    doca_error_t result;
+    struct task_userdata task_udata = { DOCA_SUCCESS, false };
 
-	/* Include result in user data of task to be used in the callbacks */
-	task_user_data.ptr = &task_result;
-	/* Allocate and construct encrypt task */
-	result = doca_aes_gcm_task_encrypt_alloc_init(resources->aes_gcm,
-						      src_buf,
-						      dst_buf,
-						      key,
-						      iv,
-						      iv_length,
-						      tag_size,
-						      aad_size,
-						      task_user_data,
-						      &encrypt_task);
-	if (result != DOCA_SUCCESS) {
-		DOCA_LOG_ERR("Failed to allocate encrypt task: %s", doca_error_get_descr(result));
-		return result;
-	}
+    /* Include task userdata in user data of task to be used in the callbacks */
+    task_user_data.ptr = &task_udata;
 
-	task = doca_aes_gcm_task_encrypt_as_task(encrypt_task);
+    /* Allocate and construct encrypt task */
+    result = doca_aes_gcm_task_encrypt_alloc_init(resources->aes_gcm,
+                                                  src_buf,
+                                                  dst_buf,
+                                                  key,
+                                                  iv,
+                                                  iv_length,
+                                                  tag_size,
+                                                  aad_size,
+                                                  task_user_data,
+                                                  &encrypt_task);
+    if (result != DOCA_SUCCESS) {
+        DOCA_LOG_ERR("Failed to allocate encrypt task: %s", doca_error_get_descr(result));
+        return result;
+    }
 
-	/* Submit encrypt task */
-	resources->num_remaining_tasks++;
-	result = doca_task_submit(task);
-	if (result != DOCA_SUCCESS) {
-		DOCA_LOG_ERR("Failed to submit encrypt task: %s", doca_error_get_descr(result));
-		doca_task_free(task);
-		return result;
-	}
+    task = doca_aes_gcm_task_encrypt_as_task(encrypt_task);
 
-	resources->run_pe_progress = true;
+    /* Submit encrypt task */
+    result = doca_task_submit(task);
+    if (result != DOCA_SUCCESS) {
+        DOCA_LOG_ERR("Failed to submit encrypt task: %s", doca_error_get_descr(result));
+        doca_task_free(task);
+        return result;
+    }
 
-	/* Wait for all tasks to be completed and context to stop */
-	while (resources->run_pe_progress) {
-		if (doca_pe_progress(state->pe) == 0)
-			nanosleep(&ts, &ts);
-	}
+    /* Wait for task to complete */
+    while (!task_udata.task_done) {
+        if (doca_pe_progress(state->pe) == 0)
+            nanosleep(&ts, &ts);
+    }
 
-	return task_result;
+    return task_udata.result;
 }
+
+
 
 doca_error_t submit_aes_gcm_decrypt_task(struct aes_gcm_resources *resources,
 					 struct doca_buf *src_buf,
@@ -689,45 +792,87 @@ doca_error_t aes_gcm_task_decrypt_is_supported(struct doca_devinfo *devinfo)
 	return doca_aes_gcm_cap_task_decrypt_is_supported(devinfo);
 }
 
+/*origin*/
+// void encrypt_completed_callback(struct doca_aes_gcm_task_encrypt *encrypt_task,
+// 				union doca_data task_user_data,
+// 				union doca_data ctx_user_data)
+// {
+// 	struct aes_gcm_resources *resources = (struct aes_gcm_resources *)ctx_user_data.ptr;
+// 	doca_error_t *result = (doca_error_t *)task_user_data.ptr;
+
+// 	DOCA_LOG_INFO("Encrypt task was done successfully");
+
+// 	/* Assign success to the result */
+// 	*result = DOCA_SUCCESS;
+// 	/* Free task */
+// 	doca_task_free(doca_aes_gcm_task_encrypt_as_task(encrypt_task));
+// 	/* Decrement number of remaining tasks */
+// 	--resources->num_remaining_tasks;
+// 	// /* Stop context once all tasks are completed */
+// 	// if (resources->num_remaining_tasks == 0)
+// 	// 	(void)doca_ctx_stop(resources->state->ctx);
+// }
+
+/*small*/
 void encrypt_completed_callback(struct doca_aes_gcm_task_encrypt *encrypt_task,
-				union doca_data task_user_data,
-				union doca_data ctx_user_data)
+                                union doca_data task_user_data,
+                                union doca_data ctx_user_data)
 {
-	struct aes_gcm_resources *resources = (struct aes_gcm_resources *)ctx_user_data.ptr;
-	doca_error_t *result = (doca_error_t *)task_user_data.ptr;
+    struct aes_gcm_resources *resources = (struct aes_gcm_resources *)ctx_user_data.ptr;
+    struct task_userdata *udata = (struct task_userdata *)task_user_data.ptr;
 
-	DOCA_LOG_INFO("Encrypt task was done successfully");
+    DOCA_LOG_INFO("Encrypt task was done successfully");
 
-	/* Assign success to the result */
-	*result = DOCA_SUCCESS;
-	/* Free task */
-	doca_task_free(doca_aes_gcm_task_encrypt_as_task(encrypt_task));
-	/* Decrement number of remaining tasks */
-	--resources->num_remaining_tasks;
-	/* Stop context once all tasks are completed */
-	if (resources->num_remaining_tasks == 0)
-		(void)doca_ctx_stop(resources->state->ctx);
+    /* Assign success to the result */
+    udata->result = DOCA_SUCCESS;
+    /* Free task */
+    doca_task_free(doca_aes_gcm_task_encrypt_as_task(encrypt_task));
+    /* Signal that the task is completed */
+    udata->task_done = true;
 }
 
+
+
+/*origin*/
+// void encrypt_error_callback(struct doca_aes_gcm_task_encrypt *encrypt_task,
+// 			    union doca_data task_user_data,
+// 			    union doca_data ctx_user_data)
+// {
+// 	struct aes_gcm_resources *resources = (struct aes_gcm_resources *)ctx_user_data.ptr;
+// 	struct doca_task *task = doca_aes_gcm_task_encrypt_as_task(encrypt_task);
+// 	doca_error_t *result = (doca_error_t *)task_user_data.ptr;
+
+// 	/* Get the result of the task */
+// 	*result = doca_task_get_status(task);
+// 	DOCA_LOG_ERR("Encrypt task failed: %s", doca_error_get_descr(*result));
+// 	/* Free task */
+// 	doca_task_free(task);
+// 	/* Decrement number of remaining tasks */
+// 	--resources->num_remaining_tasks;
+// 	/* Stop context once all tasks are completed */
+// 	if (resources->num_remaining_tasks == 0)
+// 		(void)doca_ctx_stop(resources->state->ctx);
+// }
+
+/*samll*/
 void encrypt_error_callback(struct doca_aes_gcm_task_encrypt *encrypt_task,
-			    union doca_data task_user_data,
-			    union doca_data ctx_user_data)
+                            union doca_data task_user_data,
+                            union doca_data ctx_user_data)
 {
-	struct aes_gcm_resources *resources = (struct aes_gcm_resources *)ctx_user_data.ptr;
-	struct doca_task *task = doca_aes_gcm_task_encrypt_as_task(encrypt_task);
-	doca_error_t *result = (doca_error_t *)task_user_data.ptr;
+    struct aes_gcm_resources *resources = (struct aes_gcm_resources *)ctx_user_data.ptr;
+    struct task_userdata *udata = (struct task_userdata *)task_user_data.ptr;
+    struct doca_task *task = doca_aes_gcm_task_encrypt_as_task(encrypt_task);
 
-	/* Get the result of the task */
-	*result = doca_task_get_status(task);
-	DOCA_LOG_ERR("Encrypt task failed: %s", doca_error_get_descr(*result));
-	/* Free task */
-	doca_task_free(task);
-	/* Decrement number of remaining tasks */
-	--resources->num_remaining_tasks;
-	/* Stop context once all tasks are completed */
-	if (resources->num_remaining_tasks == 0)
-		(void)doca_ctx_stop(resources->state->ctx);
+    /* Get the result of the task */
+    udata->result = doca_task_get_status(task);
+    DOCA_LOG_ERR("Encrypt task failed: %s", doca_error_get_descr(udata->result));
+    /* Free task */
+    doca_task_free(task);
+    /* Signal that the task is completed */
+    udata->task_done = true;
 }
+
+
 
 void decrypt_completed_callback(struct doca_aes_gcm_task_decrypt *decrypt_task,
 				union doca_data task_user_data,

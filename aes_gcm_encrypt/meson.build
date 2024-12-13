@@ -31,6 +31,9 @@ sample_dependencies += dependency('doca-common')
 sample_dependencies += dependency('doca-aes-gcm')
 # Utility DOCA library for executables
 sample_dependencies += dependency('doca-argp')
+# 添加OpenSSL dependency
+openssl_dep = dependency('openssl', required: true)
+sample_dependencies += openssl_dep
 
 sample_srcs = [
 	# The sample itself
@@ -60,4 +63,5 @@ executable('doca_' + SAMPLE_NAME, sample_srcs,
 	c_args : '-Wno-missing-braces',
 	dependencies : sample_dependencies,
 	include_directories: sample_inc_dirs,
+	link_args : ['-lpthread'],  # 需要链接 pthread
 	install: false)
